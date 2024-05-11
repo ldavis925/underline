@@ -26,5 +26,5 @@ _ .ext s/_S01/_-_S01/ s/episode/E/
 
 You can combine remove-string and substitute together as well
 
-_ .mp3 DISCO_OF_THE_70S s/_/_-_/
+_ .mp3 DISCO_OF_THE_70S s/__/_-_/
 
