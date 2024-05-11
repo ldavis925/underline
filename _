@@ -1,0 +1,154 @@
+#!/usr/bin/perl
+
+use List::Util qw(max);
+use File::Temp;
+use File::Basename qw(basename);
+use Getopt::Long;
+
+sub do_s {
+    my ($targ, $rep, $with, $flags) = @_;
+    return unless $targ && ref($targ) eq 'SCALAR';
+
+    #
+    # This logic is, of course, ridiculous...
+    #
+    if ($flags && $flags =~ /g/) {
+        if ($flags =~ /i/) {
+            if ($flags =~ /e/) {
+                eval "\$\$targ =~ s/$rep/$with/egi";
+            }
+            else {
+                eval "\$\$targ =~ s/$rep/$with/gi";
+            }
+        }
+        else {
+            if ($flags =~ /e/) {
+                eval "\$\$targ =~ s/$rep/$with/eg";
+            }
+            else {
+                eval "\$\$targ =~ s/$rep/$with/g";
+            }
+        }
+    }
+    else {
+        if ($flags && $flags =~ /i/) {
+            if ($flags =~ /e/) {
+                eval "\$\$targ =~ s/$rep/$with/ei";
+            }
+            else {
+                eval "\$\$targ =~ s/$rep/$with/i";
+            }
+        }
+        else {
+            if ($flags =~ /e/) {
+                eval "\$\$targ =~ s/$rep/$with/e";
+            }
+            else {
+                eval "\$\$targ =~ s/$rep/$with/";
+            }
+        }
+    }
+    return;
+}
+
+sub newname {
+    local $_ = shift;
+    my @rids = @_;
+
+    # First remove everything the user wants removed
+    if (@rids) {
+        for my $rid (@rids) {
+            if ( $rid =~ m{ s / ( [^/]+? ) / ( [^/]*? ) / ( .* ) \Z }x ) {
+                my ( $rep, $with, $flags ) = ( $1, $2, $3 );
+                do_s(\$_, $rep, $with, $flags);
+            }
+            else {
+                s/\Q$rid\E//;
+            }
+        }
+    }
+
+    # Then, remove any non filename characters
+    tr/a-zA-Z0-9. _-//cd;
+
+    # Then, convert spaces into underscores
+    tr/ /_/;
+
+    # Now compress any non alphanumeric bytes into sequences of just 1
+    tr/a-zA-Z0-9//cs;
+
+    # Make sure the first letter of each name is uppercase
+    s/(^[a-z]|(?<=_)[a-z])/"\U$&"/eg;
+
+    # But the file extension should be lowercase
+    s/_*\.(\w+)$//;
+    my $ext = lc($1) if $1;
+
+    # Now get rid of pesky dots
+    tr/./_/;
+    $_ = join('.', $_, $ext) if $ext;
+
+    return $_;
+}
+
+sub main {
+    my ($display,$help,$clobber);
+    my $res     = GetOptions(c => \$clobber, h => \$help, d => \$display);
+    my $pattern = qr/@{[shift @ARGV]}/ if @ARGV;
+    my @rids    = @ARGV;
+    $pattern  ||= qr/(?i:\.mp3)$/;
+
+    if ($help) {
+        my $bn = basename $0;
+        print STDERR "$bn [-c] file-pattern [[remove-string] | [s/replace/with/mod]] [...]\n";
+        print STDERR "\t-c will clobber existing files (by default will not overwrite)\n";
+        print STDERR "\tThe s/// modifiers can be any combination of 'i', or 'g'\n";
+        print STDERR "\tExample: $bn .avi XViD- NoRAR- s/-/_-_/g\n";
+        exit(-1);
+    }
+
+    # We only want files that match the pattern (mp3 files by default)
+    my @files  = grep /$pattern/ && -f, CORE::glob "*";
+    my $maxlen = max map length, @files;
+
+    FILE: for my $f (@files) {
+        my $n = newname($f, @rids);
+        if ($f ne $n) {
+
+            if (-e $n && !( $clobber )) {
+                warn "Warning: The file '$n' exists and the -c option is not set, skipping...\n";
+                next FILE;
+            }
+
+            # Make the display string pretty
+            my $s = sprintf "%-${maxlen}s ", $f;
+            $s =~ s/(?<=\s)\s*$/"=" x length($&)/e;
+            print $s, "> $n\n";
+
+            # We're not just displaying the changes, we're making them
+            unless (defined $display) {
+
+                # On FAT32 filesystems "foo.mp3" and "Foo.MP3" are the same file
+                if (lc($f) eq lc($n)) {
+
+                    # So rename them to something else first, then to the correct case
+                    my $tmpnam = File::Temp::tempnam(".", "tempXXXXXXXX");
+                    if ($tmpnam) {
+                        rename "$f", "$tmpnam";
+                        rename "$tmpnam", "$n";
+                    }
+                }
+                else {
+                    rename "$f", "$n";
+                }
+            }
+        }
+    }
+
+    return 1;
+}
+
+## -- MAIN -- ##
+main();
+exit 0;
+
